@@ -27,7 +27,7 @@ export default async function handler(req: any, res: any) {
     const rows = await sql`
       select id, title, body, audience, created_at
       from announcements
-      where published = true
+      where published = true and audience = 'all'
       order by created_at desc
       limit 100
     ` as AnnouncementRow[];
