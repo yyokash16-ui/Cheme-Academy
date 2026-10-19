@@ -42,6 +42,8 @@ function App(){
  const [catalogueCourses,setCatalogueCourses]=useState<Course[]>(courses);
  const [catalogueLoading,setCatalogueLoading]=useState(false);
  const [lessonLibrary,setLessonLibrary]=useState(lessons);
+ const [announcementItems,setAnnouncementItems]=useState<{id:string;title:string;body:string;audience:string;createdAt:string}[]>([]);
+ useEffect(()=>{let active=true;fetch('/api/announcements').then(async response=>{if(!response.ok)throw new Error('Unavailable');const payload=await response.json();if(!payload.ok||!Array.isArray(payload.announcements))throw new Error('Invalid response');if(active)setAnnouncementItems(payload.announcements);}).catch(()=>{if(active)setAnnouncementItems([]);});return()=>{active=false;};},[]);
  const [catalogueSource,setCatalogueSource]=useState<'demo'|'database'>('demo');
  const [extraClasses,setExtraClasses]=useState<{title:string;time:string;date:string;link:string}[]>([]);
  const [extraLessons,setExtraLessons]=useState<{title:string;subject:string;url:string}[]>([]);
