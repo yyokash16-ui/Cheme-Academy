@@ -7,6 +7,7 @@ type LiveClassRow = {
   starts_at: string;
   duration_minutes: number;
   status: 'scheduled' | 'completed' | 'cancelled';
+  meeting_url: string | null;
 };
 
 export default async function handler(req: any, res: any) {
@@ -26,7 +27,7 @@ export default async function handler(req: any, res: any) {
   try {
     const sql = neon(databaseUrl);
     const rows = await sql`
-      select id, title, description, starts_at, duration_minutes, status
+      select id, title, description, starts_at, duration_minutes, status, meeting_url
       from live_classes
       where status = 'scheduled' and starts_at >= now()
       order by starts_at asc
@@ -41,7 +42,8 @@ export default async function handler(req: any, res: any) {
         description: item.description,
         startsAt: item.starts_at,
         durationMinutes: item.duration_minutes,
-        status: item.status
+        status: item.status,
+        meetingUrl: item.meeting_url
       }))
     });
   } catch {
