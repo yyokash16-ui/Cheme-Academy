@@ -1,5 +1,5 @@
 // Idempotent Neon/Postgres schema bootstrap for the academy API.
-// The first authenticated sign-in creates the tables needed by account review.
+// The first API request prepares the tables needed by account review and the portal.
 // Keep this migration server-side; never expose DATABASE_URL to browser code.
 let schemaReady = false;
 let schemaPromise: Promise<void> | null = null;
@@ -11,7 +11,7 @@ export async function ensureAcademySchema(sql: any): Promise<void> {
       await sql`
         create table if not exists public.user_profiles (
           id text primary key,
-          email text not null,
+          email text not null unique,
           display_name text not null default '',
           role text not null default 'student',
           approval_status text not null default 'pending',
@@ -22,24 +22,14 @@ export async function ensureAcademySchema(sql: any): Promise<void> {
           approved_at timestamptz
         )
       `;
-      await sql`alter table public.user_profiles add column if not exists email text`;
-      await sql`alter table public.user_profiles add column if not exists display_name text not null default ''`;
-      await sql`alter table public.user_profiles add column if not exists role text not null default 'student'`;
-      await sql`alter table public.user_profiles add column if not exists approval_status text not null default 'pending'`;
-      await sql`alter table public.user_profiles add column if not exists created_at timestamptz not null default now()`;
-      await sql`alter table public.user_profiles add column if not exists updated_at timestamptz not null default now()`;
-      await sql`alter table public.user_profiles add column if not exists last_login_at timestamptz`;
-      await sql`alter table public.user_profiles add column if not exists approved_by text`;
-      await sql`alter table public.user_profiles add column if not exists approved_at timestamptz`;
-
       await sql`
         create table if not exists public.courses (
           id uuid primary key default gen_random_uuid(),
           title text not null,
-          slug text not null,
-          description text,
-          subject_area text,
-          level text,
+          slug text not null unique,
+          description text not null default '',
+          subject_area text not null default 'Chemical Engineering',
+          level text not null default 'undergraduate',
           status text not null default 'draft',
           access_type text not null default 'approval_required',
           created_at timestamptz not null default now(),
@@ -47,67 +37,38 @@ export async function ensureAcademySchema(sql: any): Promise<void> {
           created_by text
         )
       `;
-      await sql`alter table public.courses add column if not exists title text not null default ''`;
-      await sql`alter table public.courses add column if not exists slug text not null default ''`;
-      await sql`alter table public.courses add column if not exists description text`;
-      await sql`alter table public.courses add column if not exists subject_area text`;
-      await sql`alter table public.courses add column if not exists level text`;
-      await sql`alter table public.courses add column if not exists status text not null default 'draft'`;
-      await sql`alter table public.courses add column if not exists access_type text not null default 'approval_required'`;
-      await sql`alter table public.courses add column if not exists created_at timestamptz not null default now()`;
-      await sql`alter table public.courses add column if not exists updated_at timestamptz not null default now()`;
-      await sql`alter table public.courses add column if not exists created_by text`;
-
       await sql`
         create table if not exists public.lessons (
           id uuid primary key default gen_random_uuid(),
           course_id uuid not null,
           title text not null,
-          description text,
+          description text not null default '',
           subject_area text,
+          content_markdown text not null default '',
           video_url text,
           resource_url text,
-          status text not null default 'draft',
           sort_order integer not null default 0,
+          status text not null default 'draft',
           created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now()
+          updated_at timestamptz not null default now(),
+          created_by text
         )
       `;
-      await sql`alter table public.lessons add column if not exists course_id uuid`;
-      await sql`alter table public.lessons add column if not exists title text not null default ''`;
-      await sql`alter table public.lessons add column if not exists description text`;
-      await sql`alter table public.lessons add column if not exists subject_area text`;
-      await sql`alter table public.lessons add column if not exists video_url text`;
-      await sql`alter table public.lessons add column if not exists resource_url text`;
-      await sql`alter table public.lessons add column if not exists status text not null default 'draft'`;
-      await sql`alter table public.lessons add column if not exists sort_order integer not null default 0`;
-      await sql`alter table public.lessons add column if not exists created_at timestamptz not null default now()`;
-      await sql`alter table public.lessons add column if not exists updated_at timestamptz not null default now()`;
-
       await sql`
         create table if not exists public.live_classes (
           id uuid primary key default gen_random_uuid(),
           title text not null,
           description text not null default '',
+          course_id uuid,
+          tutor_user_id text,
           starts_at timestamptz not null,
           duration_minutes integer not null default 60,
-          status text not null default 'scheduled',
           meeting_url text,
-          tutor_user_id text,
+          status text not null default 'scheduled',
           created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
         )
       `;
-      await sql`alter table public.live_classes add column if not exists title text not null default ''`;
-      await sql`alter table public.live_classes add column if not exists description text not null default ''`;
-      await sql`alter table public.live_classes add column if not exists starts_at timestamptz`;
-      await sql`alter table public.live_classes add column if not exists duration_minutes integer not null default 60`;
-      await sql`alter table public.live_classes add column if not exists status text not null default 'scheduled'`;
-      await sql`alter table public.live_classes add column if not exists meeting_url text`;
-      await sql`alter table public.live_classes add column if not exists tutor_user_id text`;
-      await sql`alter table public.live_classes add column if not exists created_at timestamptz not null default now()`;
-      await sql`alter table public.live_classes add column if not exists updated_at timestamptz not null default now()`;
-
       await sql`
         create table if not exists public.announcements (
           id uuid primary key default gen_random_uuid(),
@@ -115,39 +76,30 @@ export async function ensureAcademySchema(sql: any): Promise<void> {
           body text not null,
           audience text not null default 'all',
           published boolean not null default false,
+          created_by text,
           created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now(),
-          created_by text
+          updated_at timestamptz not null default now()
         )
       `;
-      await sql`alter table public.announcements add column if not exists title text not null default ''`;
-      await sql`alter table public.announcements add column if not exists body text not null default ''`;
-      await sql`alter table public.announcements add column if not exists audience text not null default 'all'`;
-      await sql`alter table public.announcements add column if not exists published boolean not null default false`;
-      await sql`alter table public.announcements add column if not exists created_at timestamptz not null default now()`;
-      await sql`alter table public.announcements add column if not exists updated_at timestamptz not null default now()`;
-      await sql`alter table public.announcements add column if not exists created_by text`;
-
       await sql`
         create table if not exists public.enrollment_requests (
           id uuid primary key default gen_random_uuid(),
           student_user_id text not null,
           course_id uuid not null,
           status text not null default 'pending',
+          reviewed_by text,
+          reviewed_at timestamptz,
           created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now()
+          updated_at timestamptz not null default now(),
+          unique (student_user_id, course_id)
         )
       `;
-      await sql`alter table public.enrollment_requests add column if not exists student_user_id text`;
-      await sql`alter table public.enrollment_requests add column if not exists course_id uuid`;
-      await sql`alter table public.enrollment_requests add column if not exists status text not null default 'pending'`;
-      await sql`alter table public.enrollment_requests add column if not exists created_at timestamptz not null default now()`;
-      await sql`alter table public.enrollment_requests add column if not exists updated_at timestamptz not null default now()`;
 
-      await sql`create index if not exists user_profiles_review_queue_idx on public.user_profiles (approval_status, created_at desc)`;
-      await sql`create index if not exists courses_status_title_idx on public.courses (status, title)`;
-      await sql`create index if not exists live_classes_status_start_idx on public.live_classes (status, starts_at)`;
-      await sql`create index if not exists announcements_published_created_idx on public.announcements (published, created_at desc)`;
+      // Add only columns that the current Neon schema has not needed historically.
+      await sql`alter table public.lessons add column if not exists subject_area text`;
+      await sql`alter table public.live_classes add column if not exists updated_at timestamptz not null default now()`;
+      await sql`alter table public.announcements add column if not exists updated_at timestamptz not null default now()`;
+      await sql`alter table public.enrollment_requests add column if not exists updated_at timestamptz not null default now()`;
       schemaReady = true;
     })().catch((error) => {
       schemaPromise = null;
