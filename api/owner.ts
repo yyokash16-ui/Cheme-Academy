@@ -36,10 +36,10 @@ export default async function handler(req: any, res: any) {
       return res.status(401).json({ ok: false, error: 'Your sign-in identity could not be matched. Sign out and sign in again.' });
     }
     const email = String(identities[0].email).trim().toLowerCase();
-    // The authenticated Neon Auth identity must match a pre-approved owner profile.
-    // OWNER_EMAIL is used for first-time owner bootstrap, but a stale/missing value
-    // must not lock out an owner whose account is already approved in the database.
-    const owners = await sql`select id from public.user_profiles where id = ${userId} and lower(email) = ${email} and role = 'owner' and approval_status = 'approved' limit 1`;
+    // Authorize against the persisted approved owner email. The auth user ID may
+    // change after the owner recreates their sign-in account, while the ownership
+    // profile ID is intentionally retained for existing course/class references.
+    const owners = await sql`select id from public.user_profiles where lower(email) = ${email} and role = 'owner' and approval_status = 'approved' limit 1`;
     if (!owners.length) return res.status(403).json({ ok: false, error: 'Owner permission required' });
     const ownerId = String(owners[0].id);
 
