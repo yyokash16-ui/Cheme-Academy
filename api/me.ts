@@ -46,11 +46,6 @@ export default async function handler(req: any, res: any) {
       : (typeof payload.name === 'string' ? payload.name.trim() : '');
     const configuredOwnerEmail = (process.env.OWNER_EMAIL || '').trim().toLowerCase();
     const matchesConfiguredOwner = Boolean(configuredOwnerEmail && email === configuredOwnerEmail);
-    const explicitlyUnverified =
-      payload.email_verified === false ||
-      payload.emailVerified === false ||
-      identities[0].email_verified === false;
-
     // The persisted, approved owner profile is authoritative for an already-established
     // owner. This avoids locking out the existing account because an environment value
     // or email-verification claim is stale, without granting new identities owner access.
@@ -61,13 +56,11 @@ export default async function handler(req: any, res: any) {
       limit 1
     `;
     const isExistingOwner = existingOwner.length > 0 && String(existingOwner[0].id) === id;
-    // When the configured owner's auth login is recreated, retain the existing approved
-    // owner profile (and its stable ID) rather than creating a conflicting second profile.
-    const canRecoverOwner = matchesConfiguredOwner && existingOwner.length > 0;
-    // An already-approved owner profile with this exact email is authoritative.
-    // Do not make returning owner access depend on OWNER_EMAIL being present in the
-    // currently serving Vercel environment.
-    const isConfiguredOwner = canRecoverOwner || (matchesConfiguredOwner && (!explicitlyUnverified || isExistingOwner));
+    // A persisted, approved owner profile for this email is authoritative even if the
+    // auth user ID changed. OWNER_EMAIL also bootstraps the configured owner when the
+    // current deployment connects to a database without the existing owner profile.
+    const canRecoverOwner = existingOwner.length > 0;
+    const isConfiguredOwner = canRecoverOwner || matchesConfiguredOwner;
     const hasOwnerAccess = isExistingOwner || isConfiguredOwner;
 
     // First sign-in creates a pending profile automatically. Existing permissions are
