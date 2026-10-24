@@ -1,3 +1,4 @@
+import { ensureAcademySchema } from './_lib/schema';
 import { neon } from '@neondatabase/serverless';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
@@ -24,6 +25,7 @@ export default async function handler(req: any, res: any) {
     if (email !== configuredOwnerEmail || explicitlyUnverified) return res.status(403).json({ ok: false, error: 'Owner permission required' });
 
     const sql = neon(databaseUrl);
+    await ensureAcademySchema(sql);
     const owners = await sql`select id from public.user_profiles where id = ${userId} and lower(email) = ${email} and role = 'owner' and approval_status = 'approved' limit 1`;
     if (!owners.length) return res.status(403).json({ ok: false, error: 'Owner permission required' });
     const ownerId = String(owners[0].id);
