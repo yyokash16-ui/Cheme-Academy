@@ -32,7 +32,7 @@ export default async function handler(req: any, res: any) {
 
     if (req.method === 'GET') {
       const [users, courses, classes, lessons, announcements, enrollments] = await Promise.all([
-        sql`select id,email,display_name,role,approval_status,created_at,last_login_at from public.user_profiles order by created_at desc limit 500`,
+        sql`select id,email,display_name,role,approval_status,created_at,last_login_at from public.user_profiles order by case when approval_status = 'pending' then 0 else 1 end, created_at desc limit 500`,
         sql`select id,title,slug,description,subject_area,level,status,access_type,created_at from public.courses order by created_at desc limit 200`,
         sql`select lc.id,lc.title,lc.description,lc.starts_at,lc.duration_minutes,lc.status,lc.meeting_url,lc.tutor_user_id,up.display_name as tutor_name from public.live_classes lc left join public.user_profiles up on up.id=lc.tutor_user_id order by lc.starts_at desc limit 200`,
         sql`select l.id,l.title,l.description,l.video_url,l.resource_url,l.status,c.title as course_title from public.lessons l join public.courses c on c.id=l.course_id order by l.created_at desc limit 300`,
