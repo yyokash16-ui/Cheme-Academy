@@ -20,7 +20,7 @@ This repository is an **initial UI foundation, not a production-ready LMS**. Wit
 
 - Configure `OWNER_EMAIL` as a server-side Vercel environment variable with the exact email address that should own the academy. The matching account is provisioned as the owner on sign-in; do not let public registration choose or change this value.
 - Configure `DATABASE_URL` as a server-side Neon connection string. Never use a `VITE_` prefix for either variable.
-- A first-time authenticated sign-in creates a persistent profile automatically. New non-owner profiles start pending, and the owner reviews them in People & access. The in-app notification bell shows the pending count and opens that review list.
+- A first-time authenticated sign-in creates a persistent profile automatically. Every signed-in account immediately gets the normal learning experience. New account emails appear in the private account review list, and the notification bell shows the number awaiting review. The owner can approve or decline requests for additional learning/teaching tools; the interface does not expose internal access-mode names.
 - Only the configured owner email can access `/api/owner`. Other accounts can be approved as students or tutors; the owner role cannot be granted through the public approval action.
 
 ## Backend and security
