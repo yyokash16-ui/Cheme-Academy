@@ -56,31 +56,48 @@ export default async function handler(req: any, res: any) {
     // or email-verification claim is stale, without granting new identities owner access.
     const existingOwner = await sql`
       select id from public.user_profiles
-      where id = ${id} and lower(email) = ${email}
+      where lower(email) = ${email}
         and role = 'owner' and approval_status = 'approved'
       limit 1
     `;
-    const isExistingOwner = existingOwner.length > 0;
-    const isConfiguredOwner = matchesConfiguredOwner && (!explicitlyUnverified || isExistingOwner);
+    const isExistingOwner = existingOwner.length > 0 && String(existingOwner[0].id) === id;
+    // When the configured owner's auth login is recreated, retain the existing approved
+    // owner profile (and its stable ID) rather than creating a conflicting second profile.
+    const canRecoverOwner = matchesConfiguredOwner && existingOwner.length > 0;
+    const isConfiguredOwner = matchesConfiguredOwner && (!explicitlyUnverified || isExistingOwner || canRecoverOwner);
     const hasOwnerAccess = isExistingOwner || isConfiguredOwner;
 
     // First sign-in creates a pending profile automatically. Existing permissions are
     // preserved for ordinary accounts; the configured owner is always bootstrapped safely.
-    const rows = await sql`
-      insert into public.user_profiles
-        (id, email, display_name, role, approval_status, updated_at, last_login_at)
-      values
-        (${id}, ${email}, ${displayName || email}, ${hasOwnerAccess ? 'owner' : 'student'},
-         ${hasOwnerAccess ? 'approved' : 'pending'}, now(), now())
-      on conflict (id) do update set
-        email = excluded.email,
-        display_name = coalesce(nullif(user_profiles.display_name, ''), excluded.display_name),
-        role = case when ${hasOwnerAccess} then 'owner' else user_profiles.role end,
-        approval_status = case when ${hasOwnerAccess} then 'approved' else user_profiles.approval_status end,
-        updated_at = now(),
-        last_login_at = now()
-      returning id, email, display_name, role, approval_status
-    `;
+    let rows: any[];
+    if (hasOwnerAccess && canRecoverOwner && String(existingOwner[0].id) !== id) {
+      // Preserve the owner profile ID so existing course/class ownership references remain valid.
+      rows = await sql`
+        update public.user_profiles
+        set display_name = coalesce(nullif(display_name, ''), ${displayName || email}),
+            updated_at = now(), last_login_at = now()
+        where id = ${String(existingOwner[0].id)}
+          and lower(email) = ${email}
+          and role = 'owner' and approval_status = 'approved'
+        returning id, email, display_name, role, approval_status
+      `;
+    } else {
+      rows = await sql`
+        insert into public.user_profiles
+          (id, email, display_name, role, approval_status, updated_at, last_login_at)
+        values
+          (${id}, ${email}, ${displayName || email}, ${hasOwnerAccess ? 'owner' : 'student'},
+           ${hasOwnerAccess ? 'approved' : 'pending'}, now(), now())
+        on conflict (id) do update set
+          email = excluded.email,
+          display_name = coalesce(nullif(user_profiles.display_name, ''), excluded.display_name),
+          role = case when ${hasOwnerAccess} then 'owner' else user_profiles.role end,
+          approval_status = case when ${hasOwnerAccess} then 'approved' else user_profiles.approval_status end,
+          updated_at = now(),
+          last_login_at = now()
+        returning id, email, display_name, role, approval_status
+      `;
+    }
 
     if (!rows.length) return res.status(500).json({ ok: false, error: 'Could not create academy profile' });
     const profile = rows[0] as {id:string;email:string;display_name:string;role:string;approval_status:string};
