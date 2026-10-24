@@ -67,7 +67,10 @@ export default async function handler(req: any, res: any) {
         email: profile.email,
         name: profile.display_name,
         role,
-        approved: isConfiguredOwner || profile.approval_status === 'approved'
+        // Every authenticated account receives the standard learning experience.
+        // The database status is kept separately for the owner's review queue.
+        approved: true,
+        reviewPending: !isConfiguredOwner && profile.approval_status === 'pending'
       }
     });
   } catch (error) {
