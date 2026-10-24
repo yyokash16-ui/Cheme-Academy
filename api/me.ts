@@ -1,3 +1,4 @@
+import { ensureAcademySchema } from './_lib/schema';
 import { neon } from '@neondatabase/serverless';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
@@ -30,6 +31,7 @@ export default async function handler(req: any, res: any) {
     const explicitlyUnverified = payload.email_verified === false || payload.emailVerified === false;
     const isConfiguredOwner = Boolean(configuredOwnerEmail && email === configuredOwnerEmail && !explicitlyUnverified);
     const sql = neon(databaseUrl);
+    await ensureAcademySchema(sql);
 
     // First sign-in creates a pending profile automatically. Existing permissions are
     // preserved for ordinary accounts; the configured owner is always bootstrapped safely.
