@@ -11,7 +11,6 @@ export default async function handler(req: any, res: any) {
   const databaseUrl = process.env.DATABASE_URL;
   const configuredOwnerEmail = (process.env.OWNER_EMAIL || '').trim().toLowerCase();
   if (!databaseUrl) return res.status(503).json({ ok: false, error: 'Database not configured' });
-  if (!configuredOwnerEmail) return res.status(503).json({ ok: false, error: 'Owner account is not configured yet' });
 
   const header = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
@@ -37,10 +36,10 @@ export default async function handler(req: any, res: any) {
       return res.status(401).json({ ok: false, error: 'Your sign-in identity could not be matched. Sign out and sign in again.' });
     }
     const email = String(identities[0].email).trim().toLowerCase();
-    if (email !== configuredOwnerEmail) return res.status(403).json({ ok: false, error: 'Owner permission required' });
+    // The authenticated Neon Auth identity must match a pre-approved owner profile.
+    // OWNER_EMAIL is used for first-time owner bootstrap, but a stale/missing value
+    // must not lock out an owner whose account is already approved in the database.
     const owners = await sql`select id from public.user_profiles where id = ${userId} and lower(email) = ${email} and role = 'owner' and approval_status = 'approved' limit 1`;
-    // The exact email plus this pre-approved profile tied to the authenticated user ID
-    // authorizes the existing owner. Matching an email alone is never enough.
     if (!owners.length) return res.status(403).json({ ok: false, error: 'Owner permission required' });
     const ownerId = String(owners[0].id);
 
