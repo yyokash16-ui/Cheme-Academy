@@ -23,7 +23,7 @@ const liveClasses = [
 ];
 const navByRole: Record<Role,{id:Tab;label:string;icon:typeof LayoutDashboard}[]> = {
  student:[{id:'overview',label:'My learning',icon:LayoutDashboard},{id:'live',label:'Live classes',icon:Radio},{id:'recorded',label:'Recorded lessons',icon:CirclePlay},{id:'courses',label:'Explore courses',icon:BookOpen},{id:'announcements',label:'Announcements',icon:Bell}],
- tutor:[{id:'overview',label:'Teaching overview',icon:LayoutDashboard},{id:'live',label:'Class schedule',icon:CalendarDays},{id:'recorded',label:'Lesson library',icon:CirclePlay},{id:'content',label:'Manage content',icon:BookOpen},{id:'announcements',label:'Announcements',icon:Bell}],
+ tutor:[{id:'overview',label:'My learning',icon:LayoutDashboard},{id:'live',label:'Live classes',icon:Radio},{id:'recorded',label:'Recorded lessons',icon:CirclePlay},{id:'courses',label:'Explore courses',icon:BookOpen},{id:'content',label:'Manage content',icon:Activity},{id:'announcements',label:'Announcements',icon:Bell}],
  owner:[{id:'overview',label:'Business overview',icon:LayoutDashboard},{id:'courses',label:'All courses',icon:BookOpen},{id:'live',label:'Live classes',icon:Radio},{id:'recorded',label:'Recorded lessons',icon:CirclePlay},{id:'people',label:'Accounts & access',icon:Users},{id:'content',label:'Content management',icon:Activity},{id:'announcements',label:'Announcements',icon:Bell}]
 };
 function App(){
