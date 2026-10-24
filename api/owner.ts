@@ -20,16 +20,15 @@ export default async function handler(req: any, res: any) {
     const { payload } = await jwtVerify(token, jwks);
     const userId = typeof payload.sub === 'string' ? payload.sub : '';
     const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
-    const explicitlyUnverified = payload.email_verified === false || payload.emailVerified === false;
     if (!userId || !email) return res.status(401).json({ ok: false, error: 'Invalid identity token' });
     if (email !== configuredOwnerEmail) return res.status(403).json({ ok: false, error: 'Owner permission required' });
 
     const sql = neon(databaseUrl);
     await ensureAcademySchema(sql);
     const owners = await sql`select id from public.user_profiles where id = ${userId} and lower(email) = ${email} and role = 'owner' and approval_status = 'approved' limit 1`;
-    // The existing owner profile is the additional safeguard for this already-authenticated
-    // account. A new unverified account cannot enter this list and cannot bootstrap owner access.
-    if (!owners.length || (explicitlyUnverified && !owners.length)) return res.status(403).json({ ok: false, error: 'Owner permission required' });
+    // The exact email plus this pre-approved profile tied to the authenticated user ID
+    // authorizes the existing owner. Matching an email alone is never enough.
+    if (!owners.length) return res.status(403).json({ ok: false, error: 'Owner permission required' });
     const ownerId = String(owners[0].id);
 
     if (req.method === 'GET') {
