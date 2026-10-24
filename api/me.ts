@@ -64,7 +64,10 @@ export default async function handler(req: any, res: any) {
     // When the configured owner's auth login is recreated, retain the existing approved
     // owner profile (and its stable ID) rather than creating a conflicting second profile.
     const canRecoverOwner = matchesConfiguredOwner && existingOwner.length > 0;
-    const isConfiguredOwner = matchesConfiguredOwner && (!explicitlyUnverified || isExistingOwner || canRecoverOwner);
+    // An already-approved owner profile with this exact email is authoritative.
+    // Do not make returning owner access depend on OWNER_EMAIL being present in the
+    // currently serving Vercel environment.
+    const isConfiguredOwner = canRecoverOwner || (matchesConfiguredOwner && (!explicitlyUnverified || isExistingOwner));
     const hasOwnerAccess = isExistingOwner || isConfiguredOwner;
 
     // First sign-in creates a pending profile automatically. Existing permissions are
