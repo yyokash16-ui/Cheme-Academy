@@ -14,7 +14,7 @@ The GitHub Actions workflow checks the build on pushes and pull requests. The fr
 
 ## Current implementation status
 
-This repository is an **initial UI foundation, not a production-ready LMS**. Without valid backend configuration it runs in demo mode: content and course-enquiry changes are temporary. Supabase Auth/profile lookup is present as a partial integration, but most course, lesson, class, announcement, and enrolment mutations are not wired to persistent CRUD workflows. Do not collect real student information or sell access until authorization is wired and tested.
+The account portal uses Neon Auth for sign-in and Neon Postgres for server-side profiles. On first request, the API idempotently creates or updates the tables needed by the account-review workflow. Every signed-in account gets the regular learning workspace immediately; the configured owner can approve or decline requests for additional teaching tools. The course, lesson, class, announcement, and enrolment workflows are still an evolving LMS foundation, so validate those specific write paths before relying on them operationally.
 
 ## Account registration and owner access
 
@@ -25,9 +25,12 @@ This repository is an **initial UI foundation, not a production-ready LMS**. Wit
 
 ## Backend and security
 
-The included SQL file is a draft migration targeting a **separate Supabase project**, while a Neon PostgreSQL database was prepared separately in project planning. These are not interchangeable configuration choices: the browser client currently imports Supabase, not Neon. Before production, decide the backend architecture, implement a secure server-side API if using Neon, validate the RLS/policies, finish owner approval/tutor assignment workflows, and test with separate accounts. Never place a privileged database connection string or service-role secret in browser code or a `VITE_` variable.
+- `DATABASE_URL` is server-side only and points to the Neon PostgreSQL database.
+- `OWNER_EMAIL` is server-side only and is compared against the authenticated email on the server. A matching account is provisioned as the owner on sign-in.
+- The API initializes the account and content tables idempotently when first used. Keep the database user scoped to the ChemE Academy database.
+- Never expose database credentials with a `VITE_` prefix or allow public registration requests to grant owner access.
 
-To configure this current UI for local Supabase Auth, copy `.env.example` to `.env.local` and provide only a dedicated project's Supabase URL and publishable key. Do not reuse the Be Productive or ReConstruct projects. Owner bootstrap must be performed privately using the verified account UUID, never through public registration.
+The repository also contains legacy Supabase scaffolding; it is not the database connection used by the current account-review API.
 
 ## Course access and payments
 
