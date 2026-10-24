@@ -41,9 +41,9 @@ export default async function handler(req: any, res: any) {
          ${isConfiguredOwner ? 'approved' : 'pending'}, now(), now())
       on conflict (id) do update set
         email = excluded.email,
-        display_name = coalesce(nullif(public.user_profiles.display_name, ''), excluded.display_name),
-        role = case when ${isConfiguredOwner} then 'owner' else public.user_profiles.role end,
-        approval_status = case when ${isConfiguredOwner} then 'approved' else public.user_profiles.approval_status end,
+        display_name = coalesce(nullif(user_profiles.display_name, ''), excluded.display_name),
+        role = case when ${isConfiguredOwner} then 'owner' else user_profiles.role end,
+        approval_status = case when ${isConfiguredOwner} then 'approved' else user_profiles.approval_status end,
         updated_at = now(),
         last_login_at = now()
       returning id, email, display_name, role, approval_status
