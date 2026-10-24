@@ -26,12 +26,19 @@ export default async function handler(req: any, res: any) {
     const displayName = typeof payload.name === 'string' ? payload.name.trim() : '';
     if (!id || !email) return res.status(401).json({ ok: false, error: 'Invalid identity token' });
 
-    // Owner access comes only from a server-side allowlist, never from profile input.
+    // Owner access comes only from the server-side email allowlist and an approved
+    // owner profile. The existing owner account predates email verification being enabled;
+    // allow that same authenticated identity, but do not bootstrap a new unverified identity.
     const configuredOwnerEmail = (process.env.OWNER_EMAIL || '').trim().toLowerCase();
+    const matchesConfiguredOwner = Boolean(configuredOwnerEmail && email === configuredOwnerEmail);
     const explicitlyUnverified = payload.email_verified === false || payload.emailVerified === false;
-    const isConfiguredOwner = Boolean(configuredOwnerEmail && email === configuredOwnerEmail && !explicitlyUnverified);
     const sql = neon(databaseUrl);
     await ensureAcademySchema(sql);
+    const existingOwner = matchesConfiguredOwner
+      ? await sql`select id from public.user_profiles where id = ${id} and lower(email) = ${email} and role = 'owner' and approval_status = 'approved' limit 1`
+      : [];
+    const isExistingOwner = existingOwner.length > 0;
+    const isConfiguredOwner = matchesConfiguredOwner && (!explicitlyUnverified || isExistingOwner);
 
     // First sign-in creates a pending profile automatically. Existing permissions are
     // preserved for ordinary accounts; the configured owner is always bootstrapped safely.
