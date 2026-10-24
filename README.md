@@ -16,6 +16,13 @@ The GitHub Actions workflow checks the build on pushes and pull requests. The fr
 
 This repository is an **initial UI foundation, not a production-ready LMS**. Without valid backend configuration it runs in demo mode: content and course-enquiry changes are temporary. Supabase Auth/profile lookup is present as a partial integration, but most course, lesson, class, announcement, and enrolment mutations are not wired to persistent CRUD workflows. Do not collect real student information or sell access until authorization is wired and tested.
 
+## Account registration and owner access
+
+- Configure `OWNER_EMAIL` as a server-side Vercel environment variable with the exact email address that should own the academy. The matching account is provisioned as the owner on sign-in; do not let public registration choose or change this value.
+- Configure `DATABASE_URL` as a server-side Neon connection string. Never use a `VITE_` prefix for either variable.
+- A first-time authenticated sign-in creates a persistent profile automatically. New non-owner profiles start pending, and the owner reviews them in People & access. The in-app notification bell shows the pending count and opens that review list.
+- Only the configured owner email can access `/api/owner`. Other accounts can be approved as students or tutors; the owner role cannot be granted through the public approval action.
+
 ## Backend and security
 
 The included SQL file is a draft migration targeting a **separate Supabase project**, while a Neon PostgreSQL database was prepared separately in project planning. These are not interchangeable configuration choices: the browser client currently imports Supabase, not Neon. Before production, decide the backend architecture, implement a secure server-side API if using Neon, validate the RLS/policies, finish owner approval/tutor assignment workflows, and test with separate accounts. Never place a privileged database connection string or service-role secret in browser code or a `VITE_` variable.
