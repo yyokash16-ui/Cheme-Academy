@@ -34,11 +34,19 @@ export default async function handler(req: any, res: any) {
     const explicitlyUnverified = payload.email_verified === false || payload.emailVerified === false;
     const sql = neon(databaseUrl);
     await ensureAcademySchema(sql);
-    const existingOwner = matchesConfiguredOwner
-      ? await sql`select id from public.user_profiles where id = ${id} and lower(email) = ${email} and role = 'owner' and approval_status = 'approved' limit 1`
-      : [];
+
+    // The persisted, approved owner profile is authoritative for an already-established
+    // owner. This avoids locking out the existing account because an environment value
+    // or email-verification claim is stale, without granting new identities owner access.
+    const existingOwner = await sql`
+      select id from public.user_profiles
+      where id = ${id} and lower(email) = ${email}
+        and role = 'owner' and approval_status = 'approved'
+      limit 1
+    `;
     const isExistingOwner = existingOwner.length > 0;
     const isConfiguredOwner = matchesConfiguredOwner && (!explicitlyUnverified || isExistingOwner);
+    const hasOwnerAccess = isExistingOwner || isConfiguredOwner;
 
     // First sign-in creates a pending profile automatically. Existing permissions are
     // preserved for ordinary accounts; the configured owner is always bootstrapped safely.
@@ -46,13 +54,13 @@ export default async function handler(req: any, res: any) {
       insert into public.user_profiles
         (id, email, display_name, role, approval_status, updated_at, last_login_at)
       values
-        (${id}, ${email}, ${displayName || email}, ${isConfiguredOwner ? 'owner' : 'student'},
-         ${isConfiguredOwner ? 'approved' : 'pending'}, now(), now())
+        (${id}, ${email}, ${displayName || email}, ${hasOwnerAccess ? 'owner' : 'student'},
+         ${hasOwnerAccess ? 'approved' : 'pending'}, now(), now())
       on conflict (id) do update set
         email = excluded.email,
         display_name = coalesce(nullif(user_profiles.display_name, ''), excluded.display_name),
-        role = case when ${isConfiguredOwner} then 'owner' else user_profiles.role end,
-        approval_status = case when ${isConfiguredOwner} then 'approved' else user_profiles.approval_status end,
+        role = case when ${hasOwnerAccess} then 'owner' else user_profiles.role end,
+        approval_status = case when ${hasOwnerAccess} then 'approved' else user_profiles.approval_status end,
         updated_at = now(),
         last_login_at = now()
       returning id, email, display_name, role, approval_status
@@ -62,7 +70,7 @@ export default async function handler(req: any, res: any) {
     const profile = rows[0] as {id:string;email:string;display_name:string;role:string;approval_status:string};
     const storedRole = ['owner', 'tutor', 'student'].includes(profile.role) ? profile.role : 'student';
     // A stale database owner role cannot bypass the configured owner email.
-    const role = isConfiguredOwner && profile.approval_status === 'approved'
+    const role = hasOwnerAccess && profile.approval_status === 'approved'
       ? 'owner'
       : storedRole === 'owner'
         ? 'student'
@@ -79,7 +87,7 @@ export default async function handler(req: any, res: any) {
         // Every authenticated account receives the standard learning experience.
         // The database status is kept separately for the owner's review queue.
         approved: true,
-        reviewPending: !isConfiguredOwner && profile.approval_status === 'pending'
+        reviewPending: !hasOwnerAccess && profile.approval_status === 'pending'
       }
     });
   } catch (error) {
