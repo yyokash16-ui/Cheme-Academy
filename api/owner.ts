@@ -1,25 +1,35 @@
+import { ensureAcademySchema } from './_lib/schema';
 import { neon } from '@neondatabase/serverless';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
-const jwks = createRemoteJWKSet(new URL('https://ep-ancient-dawn-a17owzjq.neonauth.ap-southeast-1.aws.neon.tech/neondb/auth/.well-known/jwks.json'));
+const authBase = 'https://ep-ancient-dawn-a17owzjq.neonauth.ap-southeast-1.aws.neon.tech/neondb/auth';
+const jwks = createRemoteJWKSet(new URL(authBase + '/.well-known/jwks.json'));
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const databaseUrl = process.env.DATABASE_URL;
+  const configuredOwnerEmail = (process.env.OWNER_EMAIL || '').trim().toLowerCase();
   if (!databaseUrl) return res.status(503).json({ ok: false, error: 'Database not configured' });
+  if (!configuredOwnerEmail) return res.status(503).json({ ok: false, error: 'Owner account is not configured yet' });
+
   const header = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
   if (!token) return res.status(401).json({ ok: false, error: 'Sign in required' });
   try {
     const { payload } = await jwtVerify(token, jwks);
     const userId = typeof payload.sub === 'string' ? payload.sub : '';
-    const email = typeof payload.email === 'string' ? payload.email.toLowerCase() : '';
+    const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
+    const explicitlyUnverified = payload.email_verified === false || payload.emailVerified === false;
     if (!userId || !email) return res.status(401).json({ ok: false, error: 'Invalid identity token' });
+    if (email !== configuredOwnerEmail || explicitlyUnverified) return res.status(403).json({ ok: false, error: 'Owner permission required' });
+
     const sql = neon(databaseUrl);
+    await ensureAcademySchema(sql);
     const owners = await sql`select id from public.user_profiles where id = ${userId} and lower(email) = ${email} and role = 'owner' and approval_status = 'approved' limit 1`;
     if (!owners.length) return res.status(403).json({ ok: false, error: 'Owner permission required' });
     const ownerId = String(owners[0].id);
+
     if (req.method === 'GET') {
       const [users, courses, classes, lessons, announcements, enrollments] = await Promise.all([
         sql`select id,email,display_name,role,approval_status,created_at,last_login_at from public.user_profiles order by created_at desc limit 500`,
@@ -34,11 +44,23 @@ export default async function handler(req: any, res: any) {
     if (req.method !== 'POST') { res.setHeader('Allow', 'GET, POST'); return res.status(405).json({ ok: false, error: 'Method not allowed' }); }
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const action = typeof body.action === 'string' ? body.action : '';
+
     if (action === 'set-user-access') {
       const id = String(body.id || ''), status = String(body.status || ''), role = String(body.role || 'student');
-      if (!id || !['approved','rejected','suspended','pending'].includes(status) || !['student','tutor','owner'].includes(role)) return res.status(400).json({ ok: false, error: 'Invalid user access update' });
-      if (id === ownerId && (status !== 'approved' || role !== 'owner')) return res.status(400).json({ ok: false, error: 'You cannot remove your own owner access' });
-      await sql`update public.user_profiles set role=${role},approval_status=${status},approved_by=${ownerId},approved_at=case when ${status}='approved' then now() else approved_at end,updated_at=now() where id=${id}`;
+      // Only the configured owner can own the portal. Other accounts may be students or tutors.
+      if (!id || !['approved','rejected','suspended','pending'].includes(status) || !['student','tutor'].includes(role)) {
+        return res.status(400).json({ ok: false, error: 'Choose a valid account status and learner/tutor access level' });
+      }
+      if (id === ownerId) return res.status(400).json({ ok: false, error: 'Owner access cannot be changed from this screen' });
+      const updated = await sql`
+        update public.user_profiles
+        set role = ${role}, approval_status = ${status}, approved_by = ${ownerId},
+            approved_at = case when ${status} = 'approved' then now() else null end,
+            updated_at = now()
+        where id = ${id} and lower(email) <> ${configuredOwnerEmail}
+        returning id
+      `;
+      if (!updated.length) return res.status(404).json({ ok: false, error: 'Account not found or cannot be changed' });
       return res.status(200).json({ ok: true });
     }
     if (action === 'create-course') {
@@ -82,6 +104,6 @@ export default async function handler(req: any, res: any) {
     }
     return res.status(400).json({ ok: false, error: 'Unknown owner action' });
   } catch {
-    return res.status(401).json({ ok: false, error: 'Owner request could not be verified' });
+    return res.status(503).json({ ok: false, error: 'Owner request failed. Check the academy database configuration.' });
   }
 }

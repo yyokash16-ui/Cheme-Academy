@@ -1,3 +1,4 @@
+import { ensureAcademySchema } from './_lib/schema';
 import { neon } from '@neondatabase/serverless';
 
 type CourseRow = {
@@ -26,6 +27,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     const sql = neon(databaseUrl);
+    await ensureAcademySchema(sql);
     const rows = await sql`
       select id, title, slug, description, subject_area, level, access_type
       from courses
