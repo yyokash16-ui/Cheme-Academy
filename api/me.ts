@@ -22,18 +22,34 @@ export default async function handler(req: any, res: any) {
   try {
     const { payload } = await jwtVerify(token, jwks);
     const id = typeof payload.sub === 'string' ? payload.sub : '';
-    const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
-    const displayName = typeof payload.name === 'string' ? payload.name.trim() : '';
-    if (!id || !email) return res.status(401).json({ ok: false, error: 'Invalid identity token' });
+    if (!id) return res.status(401).json({ ok: false, error: 'Invalid identity token' });
 
-    // Owner access comes only from the server-side email allowlist and an approved
-    // owner profile. The existing owner account predates email verification being enabled;
-    // allow that same authenticated identity, but do not bootstrap a new unverified identity.
-    const configuredOwnerEmail = (process.env.OWNER_EMAIL || '').trim().toLowerCase();
-    const matchesConfiguredOwner = Boolean(configuredOwnerEmail && email === configuredOwnerEmail);
-    const explicitlyUnverified = payload.email_verified === false || payload.emailVerified === false;
     const sql = neon(databaseUrl);
     await ensureAcademySchema(sql);
+
+    // Do not depend on optional email claims in the JWT. Resolve the verified session
+    // subject against Neon Auth's own user table, then use that server-side identity
+    // consistently for owner matching and the academy profile.
+    const identities = await sql`
+      select id::text as id, lower(email) as email, name,
+             "emailVerified" as email_verified
+      from neon_auth."user"
+      where id::text = ${id}
+      limit 1
+    `;
+    if (!identities.length || typeof identities[0].email !== 'string') {
+      return res.status(401).json({ ok: false, error: 'Your sign-in identity could not be matched. Sign out and sign in again.' });
+    }
+    const email = String(identities[0].email).trim().toLowerCase();
+    const displayName = typeof identities[0].name === 'string'
+      ? identities[0].name.trim()
+      : (typeof payload.name === 'string' ? payload.name.trim() : '');
+    const configuredOwnerEmail = (process.env.OWNER_EMAIL || '').trim().toLowerCase();
+    const matchesConfiguredOwner = Boolean(configuredOwnerEmail && email === configuredOwnerEmail);
+    const explicitlyUnverified =
+      payload.email_verified === false ||
+      payload.emailVerified === false ||
+      identities[0].email_verified === false;
 
     // The persisted, approved owner profile is authoritative for an already-established
     // owner. This avoids locking out the existing account because an environment value
