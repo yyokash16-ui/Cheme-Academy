@@ -1,4 +1,5 @@
-import { ensureAcademySchema } from './_lib/schema';
+import { ensureAcademySchema } from './_lib/schema.ts';
+import { accountForReview, canManageOwnerPortal, normalizeEmail, normalizeReviewDecision } from './_lib/account-access.ts';
 import { neon } from '@neondatabase/serverless';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
@@ -8,26 +9,33 @@ const jwks = createRemoteJWKSet(new URL(authBase + '/.well-known/jwks.json'));
 export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  const databaseUrl = process.env.DATABASE_URL;
-  const configuredOwnerEmail = (process.env.OWNER_EMAIL || '').trim().toLowerCase();
-  if (!databaseUrl) return res.status(503).json({ ok: false, error: 'Database not configured' });
-
   const header = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
   if (!token) return res.status(401).json({ ok: false, error: 'Sign in required' });
+
+  const databaseUrl = process.env.DATABASE_URL;
+  const configuredOwnerEmail = normalizeEmail(process.env.OWNER_EMAIL);
+  if (!configuredOwnerEmail) return res.status(503).json({ ok: false, error: 'Owner access is not configured' });
+  if (!databaseUrl) return res.status(503).json({ ok: false, error: 'Database not configured' });
+
+  let payload: any;
   try {
-    const { payload } = await jwtVerify(token, jwks);
+    ({ payload } = await jwtVerify(token, jwks));
+  } catch {
+    return res.status(401).json({ ok: false, error: 'Invalid session' });
+  }
+
+  try {
     const userId = typeof payload.sub === 'string' ? payload.sub : '';
     if (!userId) return res.status(401).json({ ok: false, error: 'Invalid identity token' });
 
     const sql = neon(databaseUrl);
-    await ensureAcademySchema(sql);
 
     // Email is fetched from Neon Auth using the signed JWT subject. Some Neon Auth
     // sessions do not include email in the access-token claims, so requiring
     // payload.email would incorrectly reject a valid owner session.
     const identities = await sql`
-      select id::text as id, lower(email) as email
+      select id::text as id, lower(email) as email, "emailVerified" as email_verified
       from neon_auth."user"
       where id::text = ${userId}
       limit 1
@@ -36,41 +44,98 @@ export default async function handler(req: any, res: any) {
       return res.status(401).json({ ok: false, error: 'Your sign-in identity could not be matched. Sign out and sign in again.' });
     }
     const email = String(identities[0].email).trim().toLowerCase();
-    // Authorize against the persisted approved owner email. The auth user ID may
-    // change after the owner recreates their sign-in account, while the ownership
-    // profile ID is intentionally retained for existing course/class references.
-    const owners = await sql`select id from public.user_profiles where lower(email) = ${email} and role = 'owner' and approval_status = 'approved' limit 1`;
-    if (!owners.length) return res.status(403).json({ ok: false, error: 'Owner permission required' });
+    const emailVerified = identities[0].email_verified === true;
+    if (!emailVerified || email !== configuredOwnerEmail) return res.status(403).json({ ok: false, error: 'Owner permission required' });
+    await ensureAcademySchema(sql);
+    // Requiring both the configured identity and its approved server-side profile
+    // prevents a client-supplied role or stale profile from granting access.
+    const owners = await sql`
+      select id, role, approval_status
+      from public.user_profiles
+      where lower(email) = ${configuredOwnerEmail}
+      limit 1
+    `;
+    if (!owners.length || !canManageOwnerPortal({
+      identityEmail: email,
+      emailVerified,
+      configuredOwnerEmail,
+      profileRole: owners[0].role,
+      approvalStatus: owners[0].approval_status
+    })) return res.status(403).json({ ok: false, error: 'Owner permission required' });
     const ownerId = String(owners[0].id);
 
     if (req.method === 'GET') {
       const [users, courses, classes, lessons, announcements, enrollments] = await Promise.all([
-        sql`select id,email,display_name,role,approval_status,created_at,last_login_at from public.user_profiles order by case when approval_status = 'pending' then 0 else 1 end, created_at desc limit 500`,
+        sql`
+          select auth_user.id::text as auth_id, lower(auth_user.email) as email,
+                 auth_user.name as auth_name, auth_user."createdAt" as auth_created_at,
+                 profile.id::text as profile_id, profile.display_name as profile_name,
+                 profile.role as profile_role, profile.approval_status as profile_status,
+                 profile.last_login_at
+          from neon_auth."user" auth_user
+          left join public.user_profiles profile on lower(profile.email) = lower(auth_user.email)
+          where lower(auth_user.email) <> ${configuredOwnerEmail}
+          order by case when coalesce(profile.approval_status, 'pending') = 'pending' then 0 else 1 end,
+                   auth_user."createdAt" desc
+          limit 500
+        `,
         sql`select id,title,slug,description,subject_area,level,status,access_type,created_at from public.courses order by created_at desc limit 200`,
         sql`select lc.id,lc.title,lc.description,lc.starts_at,lc.duration_minutes,lc.status,lc.meeting_url,lc.tutor_user_id,up.display_name as tutor_name from public.live_classes lc left join public.user_profiles up on up.id=lc.tutor_user_id order by lc.starts_at desc limit 200`,
         sql`select l.id,l.title,l.description,l.video_url,l.resource_url,l.status,c.title as course_title from public.lessons l join public.courses c on c.id=l.course_id order by l.created_at desc limit 300`,
         sql`select id,title,body,audience,published,created_at from public.announcements order by created_at desc limit 200`,
         sql`select er.id,er.student_user_id,er.course_id,er.status,er.created_at,up.display_name as student_name,up.email as student_email,c.title as course_title from public.enrollment_requests er join public.user_profiles up on up.id=er.student_user_id join public.courses c on c.id=er.course_id order by er.created_at desc limit 300`
       ]);
-      return res.status(200).json({ ok: true, users, courses, classes, lessons, announcements, enrollments });
+      const reviewUsers = users.map((row: any) => accountForReview({
+        id: row.auth_id,
+        email: row.email,
+        name: row.auth_name,
+        createdAt: row.auth_created_at
+      }, row.profile_id ? {
+        id: row.profile_id,
+        displayName: row.profile_name,
+        role: row.profile_role,
+        approvalStatus: row.profile_status,
+        lastLoginAt: row.last_login_at
+      } : null));
+      return res.status(200).json({ ok: true, users: reviewUsers, courses, classes, lessons, announcements, enrollments });
     }
     if (req.method !== 'POST') { res.setHeader('Allow', 'GET, POST'); return res.status(405).json({ ok: false, error: 'Method not allowed' }); }
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const action = typeof body.action === 'string' ? body.action : '';
 
     if (action === 'set-user-access') {
-      const id = String(body.id || ''), status = String(body.status || ''), role = String(body.role || 'student');
-      // Only the configured owner can own the portal. Other accounts may be students or tutors.
-      if (!id || !['approved','rejected','suspended','pending'].includes(status) || !['student','tutor'].includes(role)) {
-        return res.status(400).json({ ok: false, error: 'Choose a valid account status and learner/tutor access level' });
-      }
-      if (id === ownerId) return res.status(400).json({ ok: false, error: 'Owner access cannot be changed from this screen' });
+      const id = String(body.id || '');
+      const target = id ? await sql`
+        select id::text as id, lower(email) as email, name
+        from neon_auth."user"
+        where id::text = ${id}
+        limit 1
+      ` : [];
+      if (!id || !target.length) return res.status(404).json({ ok: false, error: 'Account not found or cannot be changed' });
+      const targetEmail = normalizeEmail(target[0]?.email);
+      const decision = normalizeReviewDecision({
+        targetEmail,
+        configuredOwnerEmail,
+        status: body.status,
+        role: body.role || 'student'
+      });
+      if (!decision) return res.status(400).json({ ok: false, error: 'Choose a valid review status and access setting' });
+      if (String(target[0].id) === ownerId) return res.status(404).json({ ok: false, error: 'Account not found or cannot be changed' });
+
       const updated = await sql`
-        update public.user_profiles
-        set role = ${role}, approval_status = ${status}, approved_by = ${ownerId},
-            approved_at = case when ${status} = 'approved' then now() else null end,
-            updated_at = now()
-        where id = ${id} and lower(email) <> ${configuredOwnerEmail}
+        insert into public.user_profiles
+          (id, email, display_name, role, approval_status, created_at, updated_at, last_login_at, approved_by, approved_at)
+        values
+          (${String(target[0].id)}, ${targetEmail}, ${String(target[0].name || targetEmail)},
+           ${decision.role}, ${decision.status}, now(), now(), null, ${ownerId},
+           case when ${decision.status} = 'approved' then now() else null end)
+        on conflict (email) do update set
+          display_name = coalesce(nullif(public.user_profiles.display_name, ''), excluded.display_name),
+          role = excluded.role,
+          approval_status = excluded.approval_status,
+          approved_by = excluded.approved_by,
+          approved_at = case when excluded.approval_status = 'approved' then now() else null end,
+          updated_at = now()
         returning id
       `;
       if (!updated.length) return res.status(404).json({ ok: false, error: 'Account not found or cannot be changed' });

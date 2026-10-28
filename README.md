@@ -12,6 +12,12 @@ npm run build
 
 The GitHub Actions workflow checks the build on pushes and pull requests. The frontend uses Vite and can be hosted on Vercel.
 
+## Install ChemE Academy
+
+The website can be installed from a supported browser as an app on Android, iPhone, and desktop. Open the live site over HTTPS and use the **Install** button or your browser's install option. On iPhone, open the site in Safari, tap **Share**, then choose **Add to Home Screen**.
+
+The installed app uses the same online Neon sign-in and account data as the website. It caches the app shell only; account and owner API responses are never stored for offline use.
+
 ## Current implementation status
 
 The account portal uses Neon Auth for sign-in and Neon Postgres for server-side profiles. On first request, the API idempotently creates or updates the tables needed by the account-review workflow. Every signed-in account gets the regular learning workspace immediately; the configured owner can approve or decline requests for additional teaching tools. The course, lesson, class, announcement, and enrolment workflows are still an evolving LMS foundation, so validate those specific write paths before relying on them operationally.
@@ -20,7 +26,7 @@ The account portal uses Neon Auth for sign-in and Neon Postgres for server-side 
 
 - Configure `OWNER_EMAIL` as a server-side Vercel environment variable with the exact email address that should own the academy. The matching account is provisioned as the owner on sign-in; do not let public registration choose or change this value.
 - Configure `DATABASE_URL` as a server-side Neon connection string. Never use a `VITE_` prefix for either variable.
-- A first-time authenticated sign-in creates a persistent profile automatically. Every signed-in account immediately gets the normal learning experience. New account emails appear in the private account review list, and the notification bell shows the number awaiting review. The owner can approve or decline requests for additional learning/teaching tools; the interface does not expose internal access-mode names.
+- New registrations appear in the private account review list from Neon Auth, including before the user signs in for the first time. First sign-in creates a persistent profile automatically. Every signed-in account immediately gets the normal learning experience. The notification bell shows the number awaiting review. The owner can approve or decline requests for additional learning/teaching tools; internal access values are not shown as account modes in the interface.
 - Only the configured owner email can access `/api/owner`. Other accounts can be approved as students or tutors; the owner role cannot be granted through the public approval action.
 
 ## Backend and security
