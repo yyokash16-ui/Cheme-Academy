@@ -1,4 +1,4 @@
-import { ensureAcademySchema } from './_lib/schema';
+import { ensureAcademySchema } from './_lib/schema.ts';
 import { neon } from '@neondatabase/serverless';
 
 type LiveClassRow = {

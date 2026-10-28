@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import ownerHandler from '../api/owner.ts';
+
+test('Vercel packages shared API helpers with each function', async () => {
+  const config = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'));
+  assert.equal(config.functions['api/*.ts'].includeFiles, 'api/_lib/**/*.ts');
+});
 
 test('the owner endpoint rejects unauthenticated requests before accessing data', async () => {
   const oldDatabaseUrl = process.env.DATABASE_URL;
